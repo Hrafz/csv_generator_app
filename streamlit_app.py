@@ -50,6 +50,8 @@ if 'log_messages' not in st.session_state:
     st.session_state.log_messages = []
 if 'preview_sheet' not in st.session_state:
     st.session_state.preview_sheet = None
+if 'current_file' not in st.session_state:
+    st.session_state.current_file = None
 
 def add_log(message):
     """Add message to log"""
@@ -92,7 +94,7 @@ def generate_csv_files(excel_file):
 
             # Convert to CSV
             csv_buffer = BytesIO()
-            df.to_csv(csv_buffer, index=False, quoting=csv.QUOTE_ALL, encoding='utf-8')
+            df.to_csv(csv_buffer, index=False, quoting=csv.QUOTE_ALL, encoding='utf-8', sep=';')
             csv_files[sheet_name + ".csv"] = csv_buffer.getvalue()
 
             add_log(f"Successfully generated CSV for sheet '{sheet_name}'")
@@ -129,6 +131,11 @@ uploaded_file = st.file_uploader("Select Excel File", type=['xlsx', 'xlsm', 'xls
 if uploaded_file is not None:
     st.info(f"Selected File: {uploaded_file.name}")
 
+    # Check if file changed and reset checkboxes if so
+    if st.session_state.current_file != uploaded_file.name:
+        st.session_state.current_file = uploaded_file.name
+        st.session_state.selected_sheets = {}
+
     # Load available sheets
     try:
         excel_file = pd.ExcelFile(uploaded_file)
@@ -164,31 +171,6 @@ if uploaded_file is not None:
                             value=st.session_state.selected_sheets[sheet],
                             key=f"check_{sheet}"
                         )
-
-        st.divider()
-
-        # Preview section
-        st.subheader("Preview Sheet")
-
-        # Dropdown to select sheet for preview
-        preview_options = ["None"] + st.session_state.available_sheets
-        selected_preview = st.selectbox(
-            "Select a sheet to preview:",
-            options=preview_options,
-            index=0
-        )
-
-        # Show preview if selected
-        if selected_preview != "None":
-            try:
-                file_bytes = uploaded_file.getvalue()
-                df_preview = load_sheet_preview(file_bytes, selected_preview, nrows=20)
-
-                st.write(f"**Preview of '{selected_preview}' (first 20 rows):**")
-                st.write(f"Total rows: {len(df_preview)}, Total columns: {len(df_preview.columns)}")
-                st.dataframe(df_preview, use_container_width=True)
-            except Exception as e:
-                st.error(f"Error loading preview: {str(e)}")
 
         # Process generate button click
         if generate_button:
@@ -239,6 +221,34 @@ if uploaded_file is not None:
                     with st.expander("Processing Log", expanded=False):
                         log_text = "\n".join(st.session_state.log_messages)
                         st.text(log_text)
+
+        st.divider()
+
+        # Preview section
+        st.subheader("Preview Sheet")
+
+        # Dropdown to select sheet for preview
+        preview_options = ["None"] + st.session_state.available_sheets
+        selected_preview = st.selectbox(
+            "Select a sheet to preview:",
+            options=preview_options,
+            index=0
+        )
+
+        # Show preview if selected
+        if selected_preview != "None":
+            try:
+                file_bytes = uploaded_file.getvalue()
+                df_preview = load_sheet_preview(file_bytes, selected_preview, nrows=20)
+
+                # Set index to start from 2 (row 1 is headers, like Excel)
+                df_preview.index = range(2, len(df_preview) + 2)
+
+                st.write(f"**Preview of '{selected_preview}' (first 20 rows):**")
+                st.write(f"Total rows: {len(df_preview)}, Total columns: {len(df_preview.columns)}")
+                st.dataframe(df_preview, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error loading preview: {str(e)}")
 
     except Exception as e:
         st.error(f"Error loading Excel file: {str(e)}")
