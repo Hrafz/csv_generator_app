@@ -134,31 +134,6 @@ if uploaded_file is not None:
         excel_file = pd.ExcelFile(uploaded_file)
         st.session_state.available_sheets = excel_file.sheet_names
 
-        # Preview section
-        st.subheader("Preview Sheet")
-
-        # Dropdown to select sheet for preview
-        preview_options = ["None"] + st.session_state.available_sheets
-        selected_preview = st.selectbox(
-            "Select a sheet to preview:",
-            options=preview_options,
-            index=0
-        )
-
-        # Show preview if selected
-        if selected_preview != "None":
-            try:
-                file_bytes = uploaded_file.getvalue()
-                df_preview = load_sheet_preview(file_bytes, selected_preview, nrows=20)
-
-                st.write(f"**Preview of '{selected_preview}' (first 20 rows):**")
-                st.write(f"Total rows: {len(df_preview)}, Total columns: {len(df_preview.columns)}")
-                st.dataframe(df_preview, use_container_width=True)
-            except Exception as e:
-                st.error(f"Error loading preview: {str(e)}")
-
-        st.divider()
-
         # Sheet selection with generate button on the right
         col_left, col_right = st.columns([4, 1], gap="medium")
 
@@ -190,6 +165,31 @@ if uploaded_file is not None:
                             key=f"check_{sheet}"
                         )
 
+        st.divider()
+
+        # Preview section
+        st.subheader("Preview Sheet")
+
+        # Dropdown to select sheet for preview
+        preview_options = ["None"] + st.session_state.available_sheets
+        selected_preview = st.selectbox(
+            "Select a sheet to preview:",
+            options=preview_options,
+            index=0
+        )
+
+        # Show preview if selected
+        if selected_preview != "None":
+            try:
+                file_bytes = uploaded_file.getvalue()
+                df_preview = load_sheet_preview(file_bytes, selected_preview, nrows=20)
+
+                st.write(f"**Preview of '{selected_preview}' (first 20 rows):**")
+                st.write(f"Total rows: {len(df_preview)}, Total columns: {len(df_preview.columns)}")
+                st.dataframe(df_preview, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error loading preview: {str(e)}")
+
         # Process generate button click
         if generate_button:
             with st.spinner("Processing..."):
@@ -202,22 +202,23 @@ if uploaded_file is not None:
                     col1, col2 = st.columns([1, 2])
 
                     with col1:
-                        # Download all as ZIP
+                        # Download all as ZIP with Excel filename
                         zip_data = create_zip(csv_files)
+                        excel_name = uploaded_file.name.rsplit('.', 1)[0]  # Remove extension
                         st.download_button(
                             label="Download All as ZIP",
                             data=zip_data,
-                            file_name="csv_files.zip",
+                            file_name=f"{excel_name}.zip",
                             mime="application/zip"
                         )
 
                     # Individual downloads
                     st.write("**Individual Files:**")
 
-                    # Display download buttons in 2 columns for compactness
+                    # Display download buttons in 4 columns for more compact layout
                     file_list = list(csv_files.items())
-                    for i in range(0, len(file_list), 2):
-                        cols = st.columns(2)
+                    for i in range(0, len(file_list), 4):
+                        cols = st.columns(4)
                         for j, col in enumerate(cols):
                             idx = i + j
                             if idx < len(file_list):
