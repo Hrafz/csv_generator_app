@@ -100,8 +100,25 @@ def generate_csv_files(excel_file):
 
             # 2. Format datetime columns to dd/mm/yyyy (remove time)
             for col in df.columns:
+                # Check if column is datetime type
                 if pd.api.types.is_datetime64_any_dtype(df[col]):
-                    df[col] = df[col].dt.strftime('%d/%m/%Y')
+                    df[col] = df[col].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else '')
+                # Also check for string dates that look like "YYYY-MM-DD HH:MM:SS"
+                elif df[col].dtype == 'object':
+                    # Only try to convert if at least one value looks like a date string
+                    sample_values = df[col].dropna().head(10).astype(str)
+                    looks_like_dates = any('-' in str(val) and len(str(val)) >= 8 for val in sample_values)
+
+                    if looks_like_dates:
+                        try:
+                            # Try to parse as datetime and reformat
+                            temp_col = pd.to_datetime(df[col], errors='coerce')
+                            # Only convert if a significant portion are valid dates (>10%)
+                            valid_dates = temp_col.notna().sum()
+                            if valid_dates > 0 and valid_dates / len(df) > 0.1:
+                                df[col] = temp_col.apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else '')
+                        except:
+                            pass  # If conversion fails, leave as is
 
             # Convert to CSV
             csv_buffer = BytesIO()
