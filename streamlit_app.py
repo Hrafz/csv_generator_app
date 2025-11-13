@@ -3,6 +3,7 @@ import pandas as pd
 import csv
 from io import BytesIO
 import zipfile
+import base64
 
 st.set_page_config(
     page_title="CSV Generator from Excel",
@@ -10,13 +11,39 @@ st.set_page_config(
     layout="wide"
 )
 
+# Custom CSS for button color and compact layout
+st.markdown("""
+    <style>
+    .stButton > button[kind="primary"] {
+        background-color: #0047AB;
+        border-color: #0047AB;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #003580;
+        border-color: #003580;
+    }
+    .stCheckbox {
+        margin-bottom: 0rem !important;
+    }
+    div[data-testid="column"] {
+        padding: 0.25rem 0.5rem;
+    }
+    h1 {
+        margin-top: 0rem;
+        margin-bottom: 1rem;
+    }
+    h3 {
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # Initialize session state
 if 'available_sheets' not in st.session_state:
     st.session_state.available_sheets = []
 if 'selected_sheets' not in st.session_state:
     st.session_state.selected_sheets = {}
-if 'sheet_filters' not in st.session_state:
-    st.session_state.sheet_filters = {}
 if 'bupos_sheets' not in st.session_state:
     st.session_state.bupos_sheets = []
 if 'log_messages' not in st.session_state:
@@ -25,14 +52,6 @@ if 'log_messages' not in st.session_state:
 def add_log(message):
     """Add message to log"""
     st.session_state.log_messages.append(message)
-
-def get_column_by_name_or_index(columns, identifier):
-    """Get column by name or numeric index"""
-    if identifier.strip().isdigit():
-        index = int(identifier.strip())
-        if 0 <= index < len(columns):
-            return columns[index]
-    return identifier.strip()
 
 def generate_csv_files(excel_file):
     """Generate CSV files from selected sheets"""
@@ -50,25 +69,9 @@ def generate_csv_files(excel_file):
             # Read the sheet
             df = pd.read_excel(excel_file, sheet_name=sheet_name)
 
-            # Apply filter if specified
-            filter_identifier = st.session_state.sheet_filters.get(sheet_name, "").strip()
-            if filter_identifier:
-                filter_column = get_column_by_name_or_index(df.columns, filter_identifier)
-
-                if filter_column in df.columns:
-                    # Convert to numeric, handling comma decimal separators
-                    df[filter_column] = df[filter_column].apply(
-                        lambda x: x.replace(',', '.') if isinstance(x, str) else x
-                    )
-                    df[filter_column] = pd.to_numeric(df[filter_column], errors='coerce')
-                    df = df.dropna(subset=[filter_column])
-                    add_log(f"Applied filter on column '{filter_column}' for sheet '{sheet_name}'")
-                else:
-                    add_log(f"Warning: Filter column '{filter_identifier}' not found in sheet '{sheet_name}'. No filtering applied.")
-
-            # Check if dataframe is empty after filtering
+            # Check if dataframe is empty
             if df.empty:
-                add_log(f"The sheet '{sheet_name}' is empty after applying filters.")
+                add_log(f"The sheet '{sheet_name}' is empty.")
                 continue
 
             # Remove unnamed columns for BU POS sheets
@@ -101,7 +104,16 @@ def create_zip(csv_files):
             zip_file.writestr(filename, content)
     return zip_buffer.getvalue()
 
-# Main UI
+# Display Anaplan logo
+st.markdown("""
+    <div style="text-align: left; padding: 0.5rem 0 1rem 0;">
+        <svg width="400" height="80" viewBox="0 0 800 150" xmlns="http://www.w3.org/2000/svg">
+            <rect width="800" height="150" fill="#1B3D5F"/>
+            <text x="50" y="100" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="white">/Anaplan</text>
+        </svg>
+    </div>
+    """, unsafe_allow_html=True)
+
 st.title("CSV Generator from Excel")
 
 # File uploader
@@ -115,63 +127,32 @@ if uploaded_file is not None:
         excel_file = pd.ExcelFile(uploaded_file)
         st.session_state.available_sheets = excel_file.sheet_names
 
-        # Display available sheets
-        st.subheader("Available Sheets")
-        st.text(", ".join(st.session_state.available_sheets))
-
-        # Sheet selection and filters
-        st.subheader("Set Sheet Names and Filters")
-
-        # Create two columns for layout
-        col1, col2 = st.columns([3, 2])
-
-        with col1:
-            st.write("**Select Sheets:**")
-
-        with col2:
-            st.write("**Filter (column name or index):**")
+        # Sheet selection in compact columns
+        st.subheader("Select Sheets")
 
         # Initialize selected_sheets if needed
         for sheet in st.session_state.available_sheets:
             if sheet not in st.session_state.selected_sheets:
                 st.session_state.selected_sheets[sheet] = False
-            if sheet not in st.session_state.sheet_filters:
-                st.session_state.sheet_filters[sheet] = ""
 
-        # Display checkboxes and filter inputs for each sheet
-        for sheet in st.session_state.available_sheets:
-            col1, col2 = st.columns([3, 2])
+        # Display checkboxes in 5 columns for compact layout
+        num_sheets = len(st.session_state.available_sheets)
+        cols_per_row = 5
 
-            with col1:
-                st.session_state.selected_sheets[sheet] = st.checkbox(
-                    sheet,
-                    value=st.session_state.selected_sheets[sheet],
-                    key=f"check_{sheet}"
-                )
-
-            with col2:
-                if st.session_state.selected_sheets[sheet]:
-                    st.session_state.sheet_filters[sheet] = st.text_input(
-                        "Filter",
-                        value=st.session_state.sheet_filters[sheet],
-                        key=f"filter_{sheet}",
-                        label_visibility="collapsed"
-                    )
-
-        # BU POS sheet names input
-        st.subheader("BU POS Sheet Configuration")
-        bupos_input = st.text_input(
-            "Enter BU POS sheet names (comma-separated):",
-            value=", ".join(st.session_state.bupos_sheets) if st.session_state.bupos_sheets else "",
-            help="These sheets will have 'Unnamed' columns removed automatically"
-        )
-
-        if bupos_input:
-            st.session_state.bupos_sheets = [name.strip() for name in bupos_input.split(",") if name.strip()]
+        for i in range(0, num_sheets, cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j, col in enumerate(cols):
+                idx = i + j
+                if idx < num_sheets:
+                    sheet = st.session_state.available_sheets[idx]
+                    with col:
+                        st.session_state.selected_sheets[sheet] = st.checkbox(
+                            sheet,
+                            value=st.session_state.selected_sheets[sheet],
+                            key=f"check_{sheet}"
+                        )
 
         # Generate button
-        st.divider()
-
         if st.button("Generate CSV Files", type="primary"):
             with st.spinner("Processing..."):
                 csv_files = generate_csv_files(uploaded_file)
@@ -179,10 +160,8 @@ if uploaded_file is not None:
                 if csv_files:
                     st.success(f"Successfully generated {len(csv_files)} CSV file(s)")
 
-                    # Download options
-                    st.subheader("Download Files")
-
-                    col1, col2 = st.columns([1, 3])
+                    # Download options in compact layout
+                    col1, col2 = st.columns([1, 2])
 
                     with col1:
                         # Download all as ZIP
@@ -196,23 +175,31 @@ if uploaded_file is not None:
 
                     # Individual downloads
                     st.write("**Individual Files:**")
-                    for filename, content in csv_files.items():
-                        st.download_button(
-                            label=f"Download {filename}",
-                            data=content,
-                            file_name=filename,
-                            mime="text/csv",
-                            key=f"download_{filename}"
-                        )
+
+                    # Display download buttons in 2 columns for compactness
+                    file_list = list(csv_files.items())
+                    for i in range(0, len(file_list), 2):
+                        cols = st.columns(2)
+                        for j, col in enumerate(cols):
+                            idx = i + j
+                            if idx < len(file_list):
+                                filename, content = file_list[idx]
+                                with col:
+                                    st.download_button(
+                                        label=f"{filename}",
+                                        data=content,
+                                        file_name=filename,
+                                        mime="text/csv",
+                                        key=f"download_{filename}"
+                                    )
                 else:
                     st.error("No CSV files generated. Check the log below.")
 
-        # Log/Status area
-        if st.session_state.log_messages:
-            st.divider()
-            st.subheader("Processing Log")
-            log_text = "\n".join(st.session_state.log_messages)
-            st.text_area("Status", value=log_text, height=200, disabled=True)
+                # Log/Status area (compact)
+                if st.session_state.log_messages:
+                    with st.expander("Processing Log", expanded=False):
+                        log_text = "\n".join(st.session_state.log_messages)
+                        st.text(log_text)
 
     except Exception as e:
         st.error(f"Error loading Excel file: {str(e)}")
