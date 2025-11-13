@@ -10,5 +10,4 @@ wheels/
 .venv
 
 reverse_eng_tkinter/
-*.md
 *.xls*
