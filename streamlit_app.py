@@ -48,10 +48,19 @@ if 'bupos_sheets' not in st.session_state:
     st.session_state.bupos_sheets = []
 if 'log_messages' not in st.session_state:
     st.session_state.log_messages = []
+if 'preview_sheet' not in st.session_state:
+    st.session_state.preview_sheet = None
 
 def add_log(message):
     """Add message to log"""
     st.session_state.log_messages.append(message)
+
+@st.cache_data
+def load_sheet_preview(file_bytes, sheet_name, nrows=20):
+    """Load preview of a sheet with caching"""
+    excel_file = BytesIO(file_bytes)
+    df = pd.read_excel(excel_file, sheet_name=sheet_name, nrows=nrows)
+    return df
 
 def generate_csv_files(excel_file):
     """Generate CSV files from selected sheets"""
@@ -104,17 +113,15 @@ def create_zip(csv_files):
             zip_file.writestr(filename, content)
     return zip_buffer.getvalue()
 
-# Display Anaplan logo
-st.markdown("""
-    <div style="text-align: left; padding: 0.5rem 0 1rem 0;">
-        <svg width="400" height="80" viewBox="0 0 800 150" xmlns="http://www.w3.org/2000/svg">
-            <rect width="800" height="150" fill="#1B3D5F"/>
-            <text x="50" y="100" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="white">/Anaplan</text>
-        </svg>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.title("CSV Generator from Excel")
+# Header with logo on the right
+col1, col2 = st.columns([4, 1], gap="medium")
+with col1:
+    st.title("CSV Generator from Excel")
+with col2:
+    try:
+        st.image("assets/anaplan_logo.jpg", use_container_width=True)
+    except:
+        st.write("")  # If logo not found, skip
 
 # File uploader
 uploaded_file = st.file_uploader("Select Excel File", type=['xlsx', 'xlsm', 'xls'])
@@ -127,8 +134,39 @@ if uploaded_file is not None:
         excel_file = pd.ExcelFile(uploaded_file)
         st.session_state.available_sheets = excel_file.sheet_names
 
-        # Sheet selection in compact columns
-        st.subheader("Select Sheets")
+        # Preview section
+        st.subheader("Preview Sheet")
+
+        # Dropdown to select sheet for preview
+        preview_options = ["None"] + st.session_state.available_sheets
+        selected_preview = st.selectbox(
+            "Select a sheet to preview:",
+            options=preview_options,
+            index=0
+        )
+
+        # Show preview if selected
+        if selected_preview != "None":
+            try:
+                file_bytes = uploaded_file.getvalue()
+                df_preview = load_sheet_preview(file_bytes, selected_preview, nrows=20)
+
+                st.write(f"**Preview of '{selected_preview}' (first 20 rows):**")
+                st.write(f"Total rows: {len(df_preview)}, Total columns: {len(df_preview.columns)}")
+                st.dataframe(df_preview, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error loading preview: {str(e)}")
+
+        st.divider()
+
+        # Sheet selection with generate button on the right
+        col_left, col_right = st.columns([4, 1], gap="medium")
+
+        with col_left:
+            st.subheader("Select Sheets")
+
+        with col_right:
+            generate_button = st.button("Generate CSV Files", type="primary", use_container_width=True)
 
         # Initialize selected_sheets if needed
         for sheet in st.session_state.available_sheets:
@@ -152,8 +190,8 @@ if uploaded_file is not None:
                             key=f"check_{sheet}"
                         )
 
-        # Generate button
-        if st.button("Generate CSV Files", type="primary"):
+        # Process generate button click
+        if generate_button:
             with st.spinner("Processing..."):
                 csv_files = generate_csv_files(uploaded_file)
 
