@@ -92,6 +92,17 @@ def generate_csv_files(excel_file):
                     df = df.drop(columns=empty_columns)
                     add_log(f"Removed {len(empty_columns)} unnamed columns from '{sheet_name}'")
 
+            # Clean up data
+            # 1. Remove leading apostrophes from formula cells
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].apply(lambda x: str(x).lstrip("'") if isinstance(x, str) and x.startswith("'") else x)
+
+            # 2. Format datetime columns to dd/mm/yyyy (remove time)
+            for col in df.columns:
+                if pd.api.types.is_datetime64_any_dtype(df[col]):
+                    df[col] = df[col].dt.strftime('%d/%m/%Y')
+
             # Convert to CSV
             csv_buffer = BytesIO()
             df.to_csv(csv_buffer, index=False, quoting=csv.QUOTE_ALL, encoding='utf-8', sep=';')
