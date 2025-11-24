@@ -95,6 +95,9 @@ def generate_csv_files(excel_file):
                         if pd.isna(x):
                             return ''
                         val = str(x)
+                        # Replace 0:00:00 with empty string
+                        if val == '0:00:00':
+                            return ''
                         # Remove leading apostrophe
                         if val.startswith("'"):
                             val = val.lstrip("'")
