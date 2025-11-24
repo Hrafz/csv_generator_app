@@ -44,8 +44,6 @@ if 'available_sheets' not in st.session_state:
     st.session_state.available_sheets = []
 if 'selected_sheets' not in st.session_state:
     st.session_state.selected_sheets = {}
-if 'bupos_sheets' not in st.session_state:
-    st.session_state.bupos_sheets = []
 if 'log_messages' not in st.session_state:
     st.session_state.log_messages = []
 if 'preview_sheet' not in st.session_state:
@@ -85,44 +83,36 @@ def generate_csv_files(excel_file):
                 add_log(f"The sheet '{sheet_name}' is empty.")
                 continue
 
-            # Remove unnamed columns for BU POS sheets
-            if sheet_name in st.session_state.bupos_sheets or "BU POS" in sheet_name:
-                empty_columns = [col for col in df.columns if str(col).startswith('Unnamed')]
-                if empty_columns:
-                    df = df.drop(columns=empty_columns)
-                    add_log(f"Removed {len(empty_columns)} unnamed columns from '{sheet_name}'")
-
             # Clean up data
-            # 1. Remove leading apostrophes from formula cells
             for col in df.columns:
-                if df[col].dtype == 'object':
-                    df[col] = df[col].apply(lambda x: str(x).lstrip("'") if isinstance(x, str) and x.startswith("'") else x)
-
-            # 2. Format datetime columns to dd/mm/yyyy (remove time)
-            for col in df.columns:
-                # Check if column is datetime type
+                # 1. Format datetime columns (pandas datetime64 type)
                 if pd.api.types.is_datetime64_any_dtype(df[col]):
-                    df[col] = df[col].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else '')
-                # Also check for string dates that look like "YYYY-MM-DD HH:MM:SS"
-                elif df[col].dtype == 'object':
-                    # Only try to convert if at least one value looks like a date string
-                    sample_values = df[col].dropna().head(10).astype(str)
-                    looks_like_dates = any('-' in str(val) and len(str(val)) >= 8 for val in sample_values)
+                    df[col] = df[col].dt.strftime('%d/%m/%Y').fillna('')
 
-                    if looks_like_dates:
+                # 2. Handle string columns
+                elif df[col].dtype == 'object':
+                    def clean_cell(x):
+                        if pd.isna(x):
+                            return ''
+                        val = str(x)
+                        # Remove leading apostrophe
+                        if val.startswith("'"):
+                            val = val.lstrip("'")
+                        # Remove time portion from date strings (e.g., "2017-04-30 00:00:00" -> "2017-04-30")
+                        if ' 00:00:00' in val:
+                            val = val.replace(' 00:00:00', '')
+                        # Replace decimal separator for numeric strings (e.g., "12.5" -> "12,5")
                         try:
-                            # Try to parse as datetime and reformat
-                            temp_col = pd.to_datetime(df[col], errors='coerce')
-                            # Only convert if a significant portion are valid dates (>10%)
-                            valid_dates = temp_col.notna().sum()
-                            if valid_dates > 0 and valid_dates / len(df) > 0.1:
-                                df[col] = temp_col.apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else '')
-                        except:
-                            pass  # If conversion fails, leave as is
+                            float(val)  # Check if it's a number
+                            val = val.replace('.', ',')
+                        except ValueError:
+                            pass  # Not a number, leave as is
+                        return val
+                    df[col] = df[col].apply(clean_cell)
 
             # Convert to CSV
             csv_buffer = BytesIO()
-            df.to_csv(csv_buffer, index=False, quoting=csv.QUOTE_ALL, encoding='utf-8', sep=';')
+            df.to_csv(csv_buffer, index=False, quoting=csv.QUOTE_ALL, encoding='utf-8', sep=';', decimal=',')
             csv_files[sheet_name + ".csv"] = csv_buffer.getvalue()
 
             add_log(f"Successfully generated CSV for sheet '{sheet_name}'")
