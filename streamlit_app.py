@@ -4,6 +4,8 @@ import csv
 from io import BytesIO
 import zipfile
 import base64
+from openpyxl import load_workbook
+from datetime import datetime
 
 st.set_page_config(
     page_title="CSV Generator from Excel",
@@ -62,6 +64,52 @@ def load_sheet_preview(file_bytes, sheet_name, nrows=20):
     df = pd.read_excel(excel_file, sheet_name=sheet_name, nrows=nrows)
     return df
 
+def read_excel_with_openpyxl(excel_file, sheet_name):
+    """Read Excel sheet using openpyxl to preserve cell types"""
+    # Load workbook with data_only=True to get calculated values instead of formulas
+    wb = load_workbook(excel_file, data_only=True)
+    ws = wb[sheet_name]
+
+    # Get all rows
+    rows = list(ws.rows)
+
+    if not rows:
+        return pd.DataFrame()
+
+    # Extract headers from first row
+    headers = [cell.value for cell in rows[0]]
+
+    # Extract and format data based on cell type
+    data = []
+    for row in rows[1:]:
+        row_data = []
+        for cell in row:
+            if cell.value is None:
+                row_data.append('')
+            elif cell.data_type == 'd':  # Date
+                # Format date without time component
+                if isinstance(cell.value, datetime):
+                    row_data.append(cell.value.strftime('%d/%m/%Y'))
+                else:
+                    # For time-only values or invalid dates, return empty string
+                    row_data.append('')
+            elif cell.data_type == 'n':  # Numeric
+                # Replace decimal separator
+                val = str(cell.value)
+                val = val.replace('.', ',')
+                row_data.append(val)
+            else:  # String or other types
+                val = str(cell.value)
+                # Remove leading apostrophe
+                if val.startswith("'"):
+                    val = val.lstrip("'")
+                row_data.append(val)
+        data.append(row_data)
+
+    # Create DataFrame
+    df = pd.DataFrame(data, columns=headers)
+    return df
+
 def generate_csv_files(excel_file):
     """Generate CSV files from selected sheets"""
     csv_files = {}
@@ -75,40 +123,13 @@ def generate_csv_files(excel_file):
 
     for sheet_name in selected_sheet_names:
         try:
-            # Read the sheet
-            df = pd.read_excel(excel_file, sheet_name=sheet_name)
+            # Read the sheet using openpyxl to preserve cell types
+            df = read_excel_with_openpyxl(excel_file, sheet_name)
 
             # Check if dataframe is empty
             if df.empty:
                 add_log(f"The sheet '{sheet_name}' is empty.")
                 continue
-
-            # Clean up data
-            for col in df.columns:
-                # 1. Format datetime columns (pandas datetime64 type)
-                if pd.api.types.is_datetime64_any_dtype(df[col]):
-                    df[col] = df[col].dt.strftime('%d/%m/%Y').fillna('')
-
-                # 2. Handle string columns
-                elif df[col].dtype == 'object':
-                    def clean_cell(x):
-                        if pd.isna(x):
-                            return ''
-                        val = str(x)
-                        # Remove leading apostrophe
-                        if val.startswith("'"):
-                            val = val.lstrip("'")
-                        # Remove time portion from date strings (e.g., "2017-04-30 00:00:00" -> "2017-04-30")
-                        if ' 00:00:00' in val:
-                            val = val.replace(' 00:00:00', '')
-                        # Replace decimal separator for numeric strings (e.g., "12.5" -> "12,5")
-                        try:
-                            float(val)  # Check if it's a number
-                            val = val.replace('.', ',')
-                        except ValueError:
-                            pass  # Not a number, leave as is
-                        return val
-                    df[col] = df[col].apply(clean_cell)
 
             # Convert to CSV
             csv_buffer = BytesIO()
